@@ -1,0 +1,60 @@
+version: "3.4"
+
+services:
+  reverse-proxy:
+    # The official v2 Traefik docker image
+    image: traefik:v2.2.1
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--accesslog=true"
+      - "--log.level=DEBUG"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=<email-address>"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      # The Web UI (enabled by --api.insecure=true)
+      - "8080:8080"
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    restart: always
+    logging:
+      options:
+        max-size: 100m
+
+  gaugan-app:
+    container_name: gaugan-app
+    image: gaugan:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    volumes:
+      - ./pretrained/landscapes/:/app/pretrained
+    depends_on:
+      - reverse-proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gaugan-app.rule=Host(`<url-here>`)"
+      - "traefik.http.routers.gaugan-app.entrypoints=websecure"
+      - "traefik.http.routers.gaugan-app.tls.certresolver=myresolver"
+      - "traefik.http.services.gaugan-app.loadbalancer.server.port=5000"
+    # restart: always
+
+networks:
+  default:
+    external:
+      name: traefik
